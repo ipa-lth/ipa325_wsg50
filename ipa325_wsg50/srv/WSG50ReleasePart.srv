@@ -1,0 +1,14 @@
+#goal definition
+float32 openwidth
+float32 speed
+---
+#result definition
+int32 status_code
+#  0 = Idle
+#  1 = Grasping
+#  2 = No Part Found
+#  3 = Part lost
+#  4 = Holding
+#  5 = Releasing
+#  6 = Positioning
+#  7 = Error

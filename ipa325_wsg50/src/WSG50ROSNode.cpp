@@ -35,6 +35,11 @@
 #include <ipa325_wsg50/fastStop.h>
 #include <ipa325_wsg50/ackFastStop.h>
 
+#include <ipa325_wsg50/WSG50Homing.h>
+#include <ipa325_wsg50/WSG50PrePositionFingers.h>
+#include <ipa325_wsg50/WSG50GraspPart.h>
+#include <ipa325_wsg50/WSG50ReleasePart.h>
+
 // Programm Control
 //
 #define DEBUG       true
@@ -173,6 +178,52 @@ public:
     }
 };
 
+class WSG50HomingService : public WSG50RosObserver
+{
+protected:
+    ros::NodeHandle nh_;
+    // node handle must be called first
+    std::string srv_name_;
+
+public:
+    // Constructor
+    WSG50HomingService(std::string name) :
+        srv_name_(name)
+    {
+        _name = 200000;
+
+        ROS_WARN("initializing homing action.");
+        // register goal and feedback callbacks
+        nh_.advertiseService(srv_name_, &WSG50HomingService::doHoming, this);
+        // homingserver_.registerGoalCallback(std::bind(&WSG50HomingAction::doHoming, this));
+
+        _controller->Attach(this, 0x20);
+    }
+
+    // homing action
+    bool doHoming(ipa325_wsg50::WSG50Homing::Request &req,
+                        ipa325_wsg50::WSG50Homing::Response &res)
+    {
+        if(DEBUG) ROS_INFO("\n\n##########################\n##  Homing...\n##########################");
+        unsigned int goal = req.direction;
+        int movementDirection = 0;
+        if(goal == 1)
+            movementDirection = 1;
+        else
+            movementDirection = 2;
+        _controller->homing(movementDirection);
+
+        while (!_controller->ready()){
+            ros::Duration(0.1).sleep();
+        }
+
+        return true;
+    }
+
+    // void update(TRESPONSE *response) override
+    // {
+    // }
+};
 
 /*
  *  Pre-Position Fingers Action
@@ -670,6 +721,7 @@ int main(int argc, char** argv)
     WSG50ReleasePartActionServer rpserver("WSG50Gripper_ReleasePartAction");
 
 
+    WSG50HomingService homing_srv("WSG50Gripper_Homing");
     // subscribe to services
     //
     ROS_INFO("subscribe to services");
@@ -701,4 +753,3 @@ int main(int argc, char** argv)
 
     return 0;
 }
-

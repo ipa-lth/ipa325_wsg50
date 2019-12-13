@@ -44,7 +44,6 @@ add_action_files(
   DIRECTORY
     action
   FILES
-    LwrRunControlScheme.action
     WSG50Homing.action
     WSG50PrePositionFingers.action
     WSG50GraspPart.action
@@ -69,6 +68,10 @@ add_service_files(
     stop.srv
     fastStop.srv
     ackFastStop.srv
+    WSG50Homing.srv
+    WSG50PrePositionFingers.srv
+    WSG50GraspPart.srv
+    WSG50ReleasePart.srv
 )
 
 ## Generate added messages and services with any dependencies listed here
@@ -125,8 +128,8 @@ include_directories(
 # )
 
 ## Declare a cpp executable
-add_executable(schunk_testclient src/lwr_testclient.cpp)
-add_dependencies(schunk_testclient ${PROJECT_NAME}_gencpp)
+add_executable(wsg_testclient src/wsg_testclient.cpp)
+add_dependencies(wsg_testclient ${PROJECT_NAME}_gencpp)
 
 add_executable(schunk_gripper
     #src/testerGripper.cpp
@@ -143,8 +146,7 @@ add_dependencies(schunk_gripper ${PROJECT_NAME}_gencpp)
 ## Add cmake target dependencies of the executable/library
 ## as an example, message headers may need to be generated before nodes
 # add_dependencies(kuka_lwr_node kuka_lwr_generate_messages_cpp)
-
-target_link_libraries(schunk_testclient
+target_link_libraries(wsg_testclient
   ${catkin_LIBRARIES}
   pthread
   rt ## clock_gettime
@@ -155,7 +157,6 @@ target_link_libraries(schunk_gripper
   pthread
   rt ## clock_gettime
 )
-
 
 
 #############
