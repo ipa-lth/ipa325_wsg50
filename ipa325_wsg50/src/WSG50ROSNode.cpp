@@ -115,8 +115,7 @@ public:
         _name = 200000;
 
         ROS_WARN("initializing homing action.");
-        // register goal and feedback callbacks
-        homingserver_.registerGoalCallback(std::bind(&WSG50HomingAction::doHoming, this));
+        // register goal and feedback callbacks        homingserver_.registerGoalCallback(std::bind(&WSG50HomingAction::doHoming, this));
 
 
         // subscribe result/feedback callback methods at controller
@@ -131,7 +130,7 @@ public:
     // Destructor
     virtual ~WSG50HomingAction(void)
     {
-        _controller->Detach(this, 0x21);
+        _controller->Detach(this, 0x20);
     }
 
     // homing action
@@ -154,26 +153,25 @@ public:
     using WSG50RosObserver::update;
     void update(TRESPONSE *response) override
     {
-
-        // if pending or already running, send feedback
-        //
-        if(response->status_code == E_CMD_PENDING
-                || response->status_code == E_ALREADY_RUNNING)
-        {
-            result_.status_code = response->status_code;
-            this->homingserver_.isActive();
+        if (this->homingserver_.isActive()) {
+            // if pending or already running, send feedback
+            //
+            if(response->status_code == E_CMD_PENDING
+                    || response->status_code == E_ALREADY_RUNNING)
+            {
+                result_.status_code = response->status_code;
+            }
+            // if success-response
+            else if(response->status_code == E_SUCCESS) {
+                result_.status_code = response->status_code;
+                this->homingserver_.setSucceeded(this->result_);
+            }
+            // if other response message
+            else {
+                result_.status_code = response->status_code;
+                this->homingserver_.setAborted(this->result_);
+            }
         }
-        // if success-response
-        else if(response->status_code == E_SUCCESS) {
-            result_.status_code = response->status_code;
-            this->homingserver_.setSucceeded(this->result_);
-        }
-        // if other response message
-        else {
-            result_.status_code = response->status_code;
-            this->homingserver_.setAborted(this->result_);
-        }
-
         return;
     }
 };
@@ -182,8 +180,8 @@ class WSG50HomingService : public WSG50RosObserver
 {
 protected:
     ros::NodeHandle nh_;
-    // node handle must be called first
     std::string srv_name_;
+    ros::ServiceServer srv_;
 
 public:
     // Constructor
@@ -192,12 +190,16 @@ public:
     {
         _name = 200000;
 
-        ROS_WARN("initializing homing action.");
-        // register goal and feedback callbacks
-        nh_.advertiseService(srv_name_, &WSG50HomingService::doHoming, this);
+        // register callbacks
+        srv_ = nh_.advertiseService(srv_name_, &WSG50HomingService::doHoming, this);
         // homingserver_.registerGoalCallback(std::bind(&WSG50HomingAction::doHoming, this));
 
         _controller->Attach(this, 0x20);
+    }
+
+    virtual ~WSG50HomingService(void)
+    {
+        _controller->Detach(this, 0x20);
     }
 
     // homing action
@@ -281,41 +283,86 @@ public:
 
     void update(TRESPONSE *response) override
     {
-        if(response->id == 0x21) {
-            if(DEBUG) ROS_INFO("node: send feedback / result message");
-            if(response->status_code == E_ACCESS_DENIED ||
-                    response->status_code == E_NOT_INITIALIZED ||
-                    response->status_code == E_RANGE_ERROR ||
-                    response->status_code == E_CMD_FORMAT_ERROR ||
-                    response->status_code == E_INSUFFICIENT_RESOURCES ||
-                    response->status_code == E_AXIS_BLOCKED ||
-                    response->status_code == E_TIMEOUT ||
-                    response->status_code == E_CMD_ABORTED)
-            {
-                result_.status_code = response->status_code;
-                this->prepositionserver_.setAborted(result_);
-                // detach observer from width updates
-                _controller->Detach(this, 0x43);
-            } else if(response->status_code == E_SUCCESS)
-            {
-                result_.status_code = response->status_code;
-                this->prepositionserver_.setSucceeded(result_);
-                // detach observer from width updates
-                _controller->Detach(this, 0x43);
-            } else if(response->status_code == E_CMD_PENDING)
-            {
-                // ??
-            }
-        } else if(response->id == 0x43) {
-            feedback_.width = _controller->getWidth();
-            feedback_.force = _controller->getForce();
-            feedback_.speed = _controller->getSpeed();
+        if (this->prepositionserver_.isActive()) {
+            if(response->id == 0x21) {
+                if(DEBUG) ROS_INFO("node: send feedback / result message");
+                if(response->status_code == E_ACCESS_DENIED ||
+                        response->status_code == E_NOT_INITIALIZED ||
+                        response->status_code == E_RANGE_ERROR ||
+                        response->status_code == E_CMD_FORMAT_ERROR ||
+                        response->status_code == E_INSUFFICIENT_RESOURCES ||
+                        response->status_code == E_AXIS_BLOCKED ||
+                        response->status_code == E_TIMEOUT ||
+                        response->status_code == E_CMD_ABORTED)
+                {
+                    result_.status_code = response->status_code;
+                    this->prepositionserver_.setAborted(result_);
+                    // detach observer from width updates
+                    _controller->Detach(this, 0x43);
+                } else if(response->status_code == E_SUCCESS)
+                {
+                    result_.status_code = response->status_code;
+                    this->prepositionserver_.setSucceeded(result_);
+                    // detach observer from width updates
+                    _controller->Detach(this, 0x43);
+                } else if(response->status_code == E_CMD_PENDING)
+                {
+                    // ??
+                }
+            } else if(response->id == 0x43) {
+                feedback_.width = _controller->getWidth();
+                feedback_.force = _controller->getForce();
+                feedback_.speed = _controller->getSpeed();
 
-            this->prepositionserver_.publishFeedback(feedback_);
+                this->prepositionserver_.publishFeedback(feedback_);
+            }
         }
     }
 };
 
+class WSG50PrePositionFingersService : public WSG50RosObserver
+{
+protected:
+    ros::NodeHandle nh_;
+    std::string srv_name_;
+    ros::ServiceServer srv_;
+
+public:
+    // Constructor
+    WSG50PrePositionFingersService(std::string name) :
+        srv_name_(name)
+    {
+        _name = 200000;
+
+        srv_ = nh_.advertiseService(srv_name_, &WSG50PrePositionFingersService::doPrePositionFingers, this);
+
+        _controller->Attach(this, 0x21);
+    }
+
+    bool doPrePositionFingers(ipa325_wsg50::WSG50PrePositionFingers::Request &req,
+                        ipa325_wsg50::WSG50PrePositionFingers::Response &res)
+    {
+        if(DEBUG) ROS_INFO("\n\n##########################\n##  Preposition Fingers\n##########################");
+
+        // debug information
+        if(DEBUG) ROS_INFO("Preposition Fingers Action called with following params: stopOnBlock = %d, width = %f, speed = %f",
+                           (int) req.stopOnBlock, req.width, req.speed);
+
+        // trigger action
+        _controller->prePositionFingers(req.stopOnBlock, req.width, req.speed);
+
+        while (!_controller->ready()){
+            ros::Duration(0.1).sleep();
+        }
+
+        res.status_code = _controller->getGraspingState();
+        return true;
+    }
+
+    // void update(TRESPONSE *response) override
+    // {
+    // }
+};
 
 /*
  * Grasping Part Action
@@ -352,30 +399,70 @@ public:
 
     void update(TRESPONSE *response) override
     {
-        if(response->id==0x25) {        // send result response
-            res_.status_code=response->status_code;
-            if(response->status_code==E_ACCESS_DENIED ||
-                    response->status_code==E_ALREADY_RUNNING ||
-                    response->status_code==E_CMD_FORMAT_ERROR ||
-                    response->status_code==E_RANGE_ERROR ||
-                    response->status_code==E_CMD_ABORTED ||
-                    response->status_code==E_CMD_FAILED ||
-                    response->status_code==E_TIMEOUT) {
-                gpserver_.setAborted(res_);
-            } else if(response->status_code==E_SUCCESS) {
-                gpserver_.setSucceeded(res_);
+        if (this->gpserver_.isActive()) {
+            if(response->id==0x25) {        // send result response
+                res_.status_code=response->status_code;
+                if(response->status_code==E_ACCESS_DENIED ||
+                        response->status_code==E_ALREADY_RUNNING ||
+                        response->status_code==E_CMD_FORMAT_ERROR ||
+                        response->status_code==E_RANGE_ERROR ||
+                        response->status_code==E_CMD_ABORTED ||
+                        response->status_code==E_CMD_FAILED ||
+                        response->status_code==E_TIMEOUT) {
+                    gpserver_.setAborted(res_);
+                } else if(response->status_code==E_SUCCESS) {
+                    gpserver_.setSucceeded(res_);
+                }
+                _controller->Detach(this, 0x43);
+            } else if(response->id==0x43) { // send feedback response
+                fb_.force=_controller->getForce();
+                fb_.speed=_controller->getSpeed();
+                fb_.width=_controller->getWidth();
+                gpserver_.publishFeedback(fb_);
             }
-            _controller->Detach(this, 0x43);
-        } else if(response->id==0x43) { // send feedback response
-            fb_.force=_controller->getForce();
-            fb_.speed=_controller->getSpeed();
-            fb_.width=_controller->getWidth();
-            gpserver_.publishFeedback(fb_);
         }
     }
 };
 
+class WSG50GraspPartService : public WSG50RosObserver
+{
+protected:
+    ros::NodeHandle nh_;
+    std::string srv_name_;
+    ros::ServiceServer srv_;
 
+public:
+    // Constructor
+    WSG50GraspPartService(std::string name) :
+        srv_name_(name)
+    {
+        _name = 200000;
+
+        srv_ = nh_.advertiseService(srv_name_, &WSG50GraspPartService::doGrasp, this);
+
+        _controller->Attach(this, 0x25);
+    }
+
+    bool doGrasp(ipa325_wsg50::WSG50GraspPart::Request &req,
+                        ipa325_wsg50::WSG50GraspPart::Response &res)
+    {
+        if(DEBUG) ROS_INFO("\n\n##########################\n##  Grasping...\n##########################");
+        if(DEBUG) ROS_INFO("Grasp Part Action called with following params: width = %f, speed = %f", req.width, req.speed);
+
+        _controller->grasp(req.width, req.speed);
+
+        while (!_controller->ready()){
+            ros::Duration(0.1).sleep();
+        }
+
+        res.status_code = _controller->getGraspingState();
+        return true;
+    }
+
+    // void update(TRESPONSE *response) override
+    // {
+    // }
+};
 
 /*
  * Releasing Part Action
@@ -412,29 +499,69 @@ public:
 
     void update(TRESPONSE *response) override
     {
-        if(response->id==0x26) {        // send result response
-            res_.status_code=response->status_code;
-            if(response->status_code==E_ACCESS_DENIED ||
-                    response->status_code==E_ALREADY_RUNNING ||
-                    response->status_code==E_CMD_FORMAT_ERROR ||
-                    response->status_code==E_RANGE_ERROR ||
-                    response->status_code==E_CMD_ABORTED ||
-                    response->status_code==E_TIMEOUT) {
-                rpserver_.setAborted(res_);
-            } else if(response->status_code==E_SUCCESS) {
-                rpserver_.setSucceeded(res_);
+        if (this->rpserver_.isActive()){
+            if(response->id==0x26) {        // send result response
+                res_.status_code=response->status_code;
+                if(response->status_code==E_ACCESS_DENIED ||
+                        response->status_code==E_ALREADY_RUNNING ||
+                        response->status_code==E_CMD_FORMAT_ERROR ||
+                        response->status_code==E_RANGE_ERROR ||
+                        response->status_code==E_CMD_ABORTED ||
+                        response->status_code==E_TIMEOUT) {
+                    rpserver_.setAborted(res_);
+                } else if(response->status_code==E_SUCCESS) {
+                    rpserver_.setSucceeded(res_);
+                }
+                _controller->Detach(this, 0x43);
+            } else if(response->id==0x43) { // send feedback response
+                fb_.force=_controller->getForce();
+                fb_.speed=_controller->getSpeed();
+                fb_.width=_controller->getWidth();
+                rpserver_.publishFeedback(fb_);
             }
-            _controller->Detach(this, 0x43);
-        } else if(response->id==0x43) { // send feedback response
-            fb_.force=_controller->getForce();
-            fb_.speed=_controller->getSpeed();
-            fb_.width=_controller->getWidth();
-            rpserver_.publishFeedback(fb_);
         }
     }
 };
 
+class WSG50ReleasePartService : public WSG50RosObserver
+{
+protected:
+    ros::NodeHandle nh_;
+    std::string srv_name_;
+    ros::ServiceServer srv_;
 
+public:
+    // Constructor
+    WSG50ReleasePartService(std::string name) :
+        srv_name_(name)
+    {
+        _name = 200000;
+
+        srv_ = nh_.advertiseService(srv_name_, &WSG50ReleasePartService::doRelease, this);
+
+        _controller->Attach(this, 0x26);
+    }
+
+    bool doRelease(ipa325_wsg50::WSG50ReleasePart::Request &req,
+                        ipa325_wsg50::WSG50ReleasePart::Response &res)
+    {
+        if(DEBUG) ROS_INFO("\n\n##########################\n##  Release Part...\n##########################");
+        if(DEBUG) ROS_INFO("Release Part Action called with following params: width = %f, speed = %f", req.openwidth, req.speed);
+
+        _controller->release(req.openwidth, req.speed);
+
+        while (!_controller->ready()){
+            ros::Duration(0.1).sleep();
+        }
+
+        res.status_code = _controller->getGraspingState();
+        return true;
+    }
+
+    // void update(TRESPONSE *response) override
+    // {
+    // }
+};
 
 /*
  *  runs a loop to publish gripper states in ROS
@@ -720,8 +847,11 @@ int main(int argc, char** argv)
     WSG50GraspPartActionServer gpserver("WSG50Gripper_GraspPartAction");
     WSG50ReleasePartActionServer rpserver("WSG50Gripper_ReleasePartAction");
 
-
     WSG50HomingService homing_srv("WSG50Gripper_Homing");
+    WSG50PrePositionFingersService prepos_srv("WSG50Gripper_PrePositionFingers");
+    WSG50GraspPartService grasp_srv("WSG50Gripper_GraspPart");
+    WSG50ReleasePartService release_srv("WSG50Gripper_ReleasePart");
+
     // subscribe to services
     //
     ROS_INFO("subscribe to services");
